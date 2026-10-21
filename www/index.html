@@ -1,0 +1,176 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Piggy Cross</title>
+<style>
+:root{color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{margin:0;height:100%;background:#2b1b4a;color:#fff;font-family:"Trebuchet MS",system-ui,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 0,#ff9ec4,#5b2a86 75%);user-select:none;-webkit-user-select:none;touch-action:manipulation}
+#hud{display:flex;width:min(100%,336px);justify-content:space-between;padding:6px 4px 10px;box-sizing:border-box;font-weight:800;font-size:15px;letter-spacing:.5px}
+.chip{background:#ffffff2e;border:2px solid #ffffff40;border-radius:22px;padding:5px 14px;display:flex;align-items:center;gap:7px;backdrop-filter:blur(4px)}
+.chip.bump{animation:bump .35s}
+@keyframes bump{50%{transform:scale(1.3)}}
+#wrap{position:relative;width:min(100%,336px)}
+canvas{width:100%;height:auto;display:block;border-radius:22px;border:4px solid #ffffff55;box-sizing:border-box;box-shadow:0 8px 28px #0007}
+#ov{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#1b0d3acc;border-radius:22px;text-align:center;padding:20px}
+#ov h1,#ov h2,#ov p{margin:0}
+#ov h1{font-size:30px;line-height:1.05;text-shadow:0 3px 0 #c2456f}
+.title{font-size:44px!important;color:#ffd1e3}
+button{border:0;border-bottom:4px solid #c2305f;border-radius:26px;padding:12px 26px;font-size:17px;font-weight:800;font-family:inherit;cursor:pointer;color:#fff;background:linear-gradient(#ff8fb1,#ff4d8d);display:inline-flex;align-items:center;gap:8px}
+button:active{transform:translateY(2px)}
+button.ad{background:linear-gradient(#3ddba0,#0ea86f);border-bottom-color:#087a50}
+button:disabled{opacity:.5}
+.coin{display:inline-block;width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff6b0,#ffc61a 55%,#e69500);border:2px solid #b36b00;box-sizing:border-box;position:relative;flex:none}
+.coin::after{content:"";position:absolute;inset:3px;border-radius:50%;border:1.5px solid #b36b0099}
+.coin.big{width:76px;height:76px;border-width:4px;animation:spin 1.4s linear infinite}
+.coin.big::after{inset:10px;border-width:3px}
+@keyframes spin{to{transform:rotateY(360deg)}}
+.fl{position:fixed;width:26px;height:26px;z-index:10;pointer-events:none}
+.sp{position:fixed;color:#ffd43b;font-size:18px;pointer-events:none;z-index:9}
+.adcard{width:200px;height:110px;border-radius:14px;background:linear-gradient(135deg,#5b8def,#a855f7);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;padding:10px;box-sizing:border-box}
+.bar{width:200px;height:12px;background:#ffffff33;border-radius:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:#3ddba0;animation:fill 4s linear forwards}
+@keyframes fill{from{width:0}to{width:100%}}
+.ic{padding:4px 12px;font-size:18px;background:#ffffff2e;border:2px solid #ffffff40;border-radius:22px}
+small{opacity:.8;margin-top:10px;font-size:13px}
+</style></head><body>
+<div id="hud"><span class="chip">LEVEL <b id="l">1</b></span><button id="mt" class="ic" onclick="toggleMute()" aria-label="Toggle sound">🔊</button><span class="chip" id="cc"><span class="coin" id="ci"></span><b id="s">0</b></span></div>
+<div id="wrap"><canvas id="c"></canvas><div id="ov"></div></div>
+<small>Tap anywhere to hop forward!</small>
+<script>
+const $=id=>document.getElementById(id);
+const C=$('c'),X=C.getContext('2d'),W=336,H=480,CELL=48,COLS=7,M=130,L=W+2*M;
+const dpr=Math.min(Math.max(devicePixelRatio||1,2),3);C.width=W*dpr;C.height=H*dpr;X.scale(dpr,dpr);
+const COLORS=[['#ff5d73',44],['#4dabf7',44],['#ffd43b',46],['#845ef7',54],['#51cf66',52],['#ff922b',44]];
+const pickr=a=>a[Math.floor(Math.random()*a.length)];
+let level=1,coins=0,N,lanes,pig,state='ready',t=0,fx=[],bub={s:'',l:0},shake=0;
+const rowY=r=>H-(r+1)*CELL;
+const carX=(l,c)=>((c.o+l.dir*l.sp*t)%L+L)%L-M;
+let AC,muted=false;function snd(f,d,ty,f2){if(muted)return;try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain(),n=AC.currentTime;o.type=ty||'sine';o.frequency.setValueAtTime(f,n);if(f2)o.frequency.exponentialRampToValueAtTime(f2,n+d);g.gain.setValueAtTime(.1,n);g.gain.exponentialRampToValueAtTime(.001,n+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(n+d)}catch(e){}}
+function toggleMute(){muted=!muted;$('mt').textContent=muted?'🔇':'🔊'}
+const TH={day:{sky:['#7fd0ff','#ffe3f1'],dim:0},dusk:{sky:['#ff9966','#ffd9a0'],dim:.12},night:{sky:['#0b1440','#3a3f7a'],dim:.35}};
+let th='day',wx='clear',drops=[];
+function roll(){th=pickr(['day','day','dusk','night']);wx=pickr(['clear','clear','cloudy','rain','snow','fog']);drops=Array.from({length:70},()=>({x:Math.random()*W,y:Math.random()*H,v:.6+Math.random()*.8}))}
+function skyArt(topY){
+ if(topY<=64)return;
+ const night=th==='night',open=wx==='clear'||wx==='cloudy';
+ if(night){for(let i=0;i<16;i++){if(open||wx==='fog')ci((i*97+13)%W,(i*53+9)%Math.max(topY-24,20),1+(i%3)*.5,'#ffffffcc')}
+  if(open){ci(286,36,20,'#fff7c2');ci(294,31,17,'#151f52')}}
+ else if(open){ci(286,36,36,'#fff3a055');ci(286,36,21,th==='dusk'?'#ff8a3d':'#ffd43b')}
+ const n=wx==='clear'?1:3;
+ for(let k=0;k<n;k++){const y=32+k*36;if(y<topY-24)cloud(((t*8+k*130)%(W+100))-50,y)}
+}
+function weather(){
+ const dim=TH[th].dim;
+ if(dim){X.fillStyle=`rgba(8,12,50,${dim})`;X.fillRect(0,0,W,H)}
+ if(th==='night')for(const l of lanes){const cy=rowY(l.i)+CELL/2+3;for(const c of l.cars){const x=carX(l,c)+c.w/2+(l.dir<0?-1:1)*(c.w/2+14);ci(x,cy,15,'#fff3a044');ci(x,cy,8,'#fff3a066')}}
+ if(wx==='rain'){X.fillStyle='rgba(30,40,70,.12)';X.fillRect(0,0,W,H);X.strokeStyle='#cfe6ffaa';X.lineWidth=1.3;X.beginPath();drops.forEach(d=>{const x=((d.x-t*40)%W+W)%W,y=((d.y+t*420*d.v)%H+H)%H;X.moveTo(x,y);X.lineTo(x-4,y+11)});X.stroke()}
+ else if(wx==='snow'){X.fillStyle='#fff';drops.forEach(d=>{const x=((d.x+Math.sin(t*1.5+d.y)*14)%W+W)%W,y=((d.y+t*45*d.v)%H+H)%H;X.beginPath();X.arc(x,y,1.6+d.v,0,7);X.fill()})}
+ else if(wx==='fog'){X.fillStyle='rgba(235,240,250,.3)';X.fillRect(0,0,W,H)}
+}
+function build(){
+ N=Math.min(1+Math.ceil((level+2)/3),6);lanes=[];
+ const base=Math.min(38+level*5,110);
+ for(let i=1;i<=N;i++){
+  const dir=Math.random()<.5?-1:1,sp=base*(.7+Math.random()*.6),n=Math.min(1+Math.floor(Math.random()*2)+(level>4?1:0),3),S=L/n,cars=[];
+  for(let k=0;k<n;k++){const[e,w]=pickr(COLORS);cars.push({e,w,o:k*S+Math.random()*(S-w-120)})}
+  lanes.push({i,dir,sp,cars})}
+ pig={c:3,r:0,x:3*CELL+CELL/2,y:rowY(0)+CELL/2,d:0};fx=[];bub.l=0;
+}
+function hud(){$('l').textContent=level;$('s').textContent=coins}
+function ov(h){const o=$('ov');o.innerHTML=h;o.style.display=h?'flex':'none'}
+function timer(n,cb,label){const i=setInterval(()=>{n--;const b=$('x');if(n>0){if(b)b.textContent=label(n)}else{clearInterval(i);cb()}},1000)}
+function inter(cb){ov('<small>ADVERTISEMENT (demo)</small><div class="adcard">Your interstitial ad appears here</div><button id="x" disabled>Close in 3s</button>');
+ timer(3,()=>{const b=$('x');b.disabled=false;b.textContent='Close ✕';b.onclick=cb},n=>`Close in ${n}s`)}
+function ad(cb){ov('<small>REWARDED VIDEO (demo)</small><div class="adcard">Your rewarded video plays here</div><div class="bar"><i></i></div><small id="x">4</small>');timer(4,cb,n=>n)}
+function fly(from,cb){
+ const tg=$('ci').getBoundingClientRect(),tx=tg.left+tg.width/2,ty=tg.top+tg.height/2;
+ for(let i=0;i<8;i++){const s=document.createElement('i');s.className='sp';s.textContent='✦';s.style.left=from.x+'px';s.style.top=from.y+'px';document.body.appendChild(s);
+  const a=i/8*6.283,d=34+Math.random()*22;
+  s.animate([{transform:'translate(-50%,-50%) scale(.4)',opacity:1},{transform:`translate(calc(-50% + ${Math.cos(a)*d}px),calc(-50% + ${Math.sin(a)*d}px)) scale(1.3)`,opacity:0}],{duration:650,easing:'ease-out'}).onfinish=()=>s.remove()}
+ const e=document.createElement('span');e.className='coin fl';e.style.left=from.x+'px';e.style.top=from.y+'px';document.body.appendChild(e);
+ snd(880,.14,'triangle',1320);
+ e.animate([{transform:'translate(-50%,-50%) scale(.3)',opacity:0},{transform:'translate(-50%,calc(-50% - 50px)) scale(1.8)',opacity:1,offset:.35},{transform:`translate(calc(-50% + ${tx-from.x}px),calc(-50% + ${ty-from.y}px)) scale(.9)`,opacity:1}],{duration:950,easing:'cubic-bezier(.5,0,.4,1)'}).onfinish=()=>{
+  e.remove();coins++;hud();const c=$('cc');c.classList.remove('bump');void c.offsetWidth;c.classList.add('bump');snd(1200,.12,'triangle',1800);cb&&cb()}}
+function win(){state='wait';snd(660,.25,'triangle',990);
+ const r=C.getBoundingClientRect();
+ fly({x:r.left+pig.x*r.width/W,y:r.top+pig.y*r.height/H},()=>setTimeout(()=>inter(()=>results(false)),300))}
+function results(used){
+ ov(`<span class="coin big"></span><h1>${used?'Bonus coin collected!':`Level ${level} clear!`}</h1>${used?'':'<button class="ad" onclick="rw()"><span class="coin"></span>Watch video for 1 more coin</button>'}<button onclick="next()">Continue ▶</button>`)}
+function rw(){ad(()=>{results(true);const r=$('wrap').getBoundingClientRect();fly({x:r.left+r.width/2,y:r.top+r.height*.3})})}
+function next(){level++;build();roll();hud();state='play';ov('')}
+function retry(){build();state='play';ov('')}
+function start(){state='play';ov('')}
+const DIE=['Oink! Squashed like a pancake!','Pig: “I just wanted to cross the road…”','Driver: “Sorry, I didn’t see you!”','Too slow, piggy!','Zoom! There goes a flying pig!'];
+function die(){state='dead';shake=1;snd(160,.35,'sawtooth',60);setTimeout(()=>ov(`<h1>💥 Oops!</h1><h2>${pickr(DIE)}</h2><button onclick="retry()">Try again ↻</button>`),700)}
+function mv(){
+ if(state!=='play'||pig.d>2)return;
+ pig.r++;snd(520,.07,'square',760);
+ if(Math.random()<.22){bub.s=pickr(['Oink!','Wee!','Go go go!','Hop hop!','Mama!']);bub.l=1}
+ if(pig.r<=N){const l=lanes[pig.r-1];let best=0,bd=1e9;
+  l.cars.forEach(c=>{const x=carX(l,c)+c.w/2,d=Math.abs(x-pig.x);if(d<bd){bd=d;best=x}});
+  if(bd<150&&Math.random()<.6)fx.push({x:best,y:rowY(pig.r),s:pickr(['BEEP!','HONK!','WATCH OUT!']),l:1})}
+ if(pig.r===N+1)win();
+}
+function update(dt){
+ t+=dt;
+ const ty=rowY(pig.r)+CELL/2,dy=ty-pig.y,d=Math.abs(dy),st=560*dt;
+ if(d<=st)pig.y=ty;else pig.y+=Math.sign(dy)*st;
+ pig.d=d;
+ if(state==='play')for(const l of lanes){const ly=rowY(l.i)+CELL/2;
+  if(Math.abs(ly-pig.y)<24)for(const c of l.cars)if(Math.abs(carX(l,c)+c.w/2-pig.x)<c.w/2+4){die();return}}
+ fx.forEach(f=>{f.l-=dt;f.y-=22*dt});fx=fx.filter(f=>f.l>0);if(bub.l>0)bub.l-=dt;if(shake>0)shake-=dt*2.5;
+}
+function ci(x,y,r,col){X.fillStyle=col;X.beginPath();X.arc(x,y,r,0,7);X.fill()}
+function pig_(x,y){X.save();X.translate(x,y);
+ X.fillStyle='#ff8fb1';[-1,1].forEach(s=>{X.beginPath();X.moveTo(s*8,-12);X.lineTo(s*17,-23);X.lineTo(s*18,-5);X.closePath();X.fill()});
+ X.fillStyle='#ffb8cd';X.strokeStyle='#e8749a';X.lineWidth=1.5;X.beginPath();X.arc(0,0,17,0,7);X.fill();X.stroke();
+ [-11,11].forEach(d=>ci(d,1,3.5,'#ff7aa066'));
+ X.fillStyle='#ff9bb8';X.beginPath();X.ellipse(0,5,9,6.5,0,0,7);X.fill();
+ X.fillStyle='#c2456f';[-3.5,3.5].forEach(d=>{X.beginPath();X.ellipse(d,5,1.6,2.2,0,0,7);X.fill()});
+ [-6.5,6.5].forEach(d=>ci(d,-4,2.6,'#222'));[-5.7,7.3].forEach(d=>ci(d,-4.9,.9,'#fff'));
+ X.restore()}
+function car(x,y,w,col,dir){X.save();X.translate(x,y);if(dir>0)X.scale(-1,1);
+ X.fillStyle=col;X.beginPath();X.roundRect(-w/2,-4,w,18,6);X.fill();
+ X.beginPath();X.roundRect(-w/2+w*.2,-14,w*.55,14,5);X.fill();
+ X.fillStyle='#d8f1ff';X.beginPath();X.roundRect(-w/2+w*.25,-12,w*.45,9,3);X.fill();
+ ci(-w/2+3,3,3,'#fff3a0');[-w/2+11,w/2-11].forEach(d=>{ci(d,14,5.5,'#222');ci(d,14,2,'#bbb')});
+ X.restore()}
+function cloud(x,y){const col=wx==='rain'?'#6f788ce6':th==='night'?'#9aa6d4aa':'#ffffffcc';[[0,0,14],[14,-5,17],[30,0,13],[15,5,14]].forEach(p=>ci(x+p[0],y+p[1],p[2],col))}
+function tree(x,y){X.fillStyle='#8d5a2b';X.fillRect(x-3,y,6,13);ci(x,y-6,12,'#2f9e44');ci(x-8,y,9,'#37b24d');ci(x+8,y,9,'#37b24d')}
+function bank(y,top){
+ for(let c=0;c<COLS;c++){X.fillStyle=wx==='snow'?(c%2?'#eef6ff':'#f8fbff'):(c%2?'#7fdc72':'#8be57d');X.fillRect(c*CELL,y,CELL,CELL)}
+ [0,1,5,6].forEach(c=>{if((c*3+level+(top?1:0))%2===0)tree(c*CELL+24,y+(top?18:20))});
+ if(!top)for(let c=0;c<COLS;c++)if(c!==3&&(c*7+level)%3===0){const x=c*CELL+24,fy=y+36;ci(x,fy,4,c%2?'#ff6b9d':'#ffd43b');ci(x,fy,1.6,'#fff3a0')}
+ for(let k=0;k<W;k+=16){X.fillStyle=(k/16)%2?'#fff':'#ff5d73';X.fillRect(k,top?y+CELL-5:y,16,5)}}
+function draw(){
+ const topY=rowY(N+1);
+ X.save();if(shake>0)X.translate((Math.random()-.5)*8*shake,(Math.random()-.5)*8*shake);
+ const g=X.createLinearGradient(0,0,0,topY+10);g.addColorStop(0,TH[th].sky[0]);g.addColorStop(1,TH[th].sky[1]);X.fillStyle=g;X.fillRect(0,0,W,H);if(wx!=='clear'&&th!=='night'){X.fillStyle=wx==='cloudy'?'rgba(120,130,150,.18)':'rgba(100,110,130,.35)';X.fillRect(0,0,W,topY+10)}
+ skyArt(topY);
+ bank(topY,true);
+ const bx=3*CELL+24,bb=topY+CELL-4;
+ X.fillStyle='#e8505b';X.fillRect(bx-22,bb-30,44,30);X.fillStyle='#a82a35';X.beginPath();X.moveTo(bx-27,bb-30);X.lineTo(bx,bb-50);X.lineTo(bx+27,bb-30);X.closePath();X.fill();
+ X.fillStyle='#fff3e0';X.fillRect(bx-9,bb-19,18,19);X.strokeStyle='#a82a35';X.lineWidth=2;X.strokeRect(bx-9,bb-19,18,19);X.beginPath();X.moveTo(bx-9,bb-19);X.lineTo(bx+9,bb);X.moveTo(bx+9,bb-19);X.lineTo(bx-9,bb);X.stroke();
+ for(const l of lanes){const y=rowY(l.i);X.fillStyle='#3b3f4f';X.fillRect(0,y,W,CELL);X.fillStyle='#ffffff10';X.fillRect(0,y,W,3);
+  if(l.i<N){X.strokeStyle='#ffffff99';X.lineWidth=2;X.setLineDash([14,12]);X.beginPath();X.moveTo(0,y);X.lineTo(W,y);X.stroke();X.setLineDash([])}}
+ bank(rowY(0),false);
+ for(const l of lanes){const cy=rowY(l.i)+CELL/2+2;
+  for(const c of l.cars){const x=carX(l,c)+c.w/2;X.fillStyle='#0005';X.beginPath();X.ellipse(x,cy+18,c.w/2-3,4.5,0,0,7);X.fill();car(x,cy,c.w,c.e,l.dir)}}
+ const arc=Math.sin(Math.min(pig.d/CELL,1)*Math.PI)*12,bob=state==='play'&&pig.d<1?Math.sin(t*6)*1.5:0;
+ X.fillStyle='#0004';X.beginPath();X.ellipse(pig.x,pig.y+16,14,5,0,0,7);X.fill();
+ if(state==='dead'){X.save();X.translate(pig.x,pig.y+10);X.scale(1.5,.4);pig_(0,0);X.restore();
+  for(let k=0;k<3;k++){const a=t*6+k*2.1;ci(pig.x+Math.cos(a)*16,pig.y-16+Math.sin(a)*4,3,'#ffd43b')}}
+ else pig_(pig.x,pig.y-arc+bob);
+ if(state==='play'&&level===1&&pig.r===0){const p=1+Math.sin(t*6)*.12;X.save();X.translate(pig.x,pig.y-46);X.scale(p,p);X.font='bold 20px "Trebuchet MS",sans-serif';X.textAlign='center';X.lineWidth=4;X.strokeStyle='#d6336c';X.strokeText('TAP!',0,0);X.fillStyle='#fff';X.fillText('TAP!',0,0);X.restore()}
+ weather();if(bub.l>0&&state==='play'){const bx2=Math.min(Math.max(pig.x,50),W-50),by=pig.y-42;X.font='bold 13px "Trebuchet MS",sans-serif';const w=X.measureText(bub.s).width+18;
+  X.fillStyle='#fff';X.beginPath();X.roundRect(bx2-w/2,by-12,w,23,11);X.fill();X.fillStyle='#d6336c';X.textAlign='center';X.textBaseline='middle';X.fillText(bub.s,bx2,by)}
+ fx.forEach(f=>{X.globalAlpha=Math.max(f.l,0);X.font='bold 15px "Trebuchet MS",sans-serif';X.textAlign='center';X.textBaseline='alphabetic';X.fillStyle='#fff';X.strokeStyle='#e03131';X.lineWidth=3;X.strokeText(f.s,f.x,f.y);X.fillText(f.s,f.x,f.y);X.globalAlpha=1});
+ X.restore();
+}
+let last=performance.now();
+function loop(n){const dt=Math.min((n-last)/1000,.05);last=n;update(dt);draw();requestAnimationFrame(loop)}
+addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;mv()});
+addEventListener('keydown',e=>{if(e.key===' '||e.key==='ArrowUp'){e.preventDefault();mv()}});
+build();hud();
+roll();ov('<h1 class="title">Piggy<br>Cross</h1><p>Help the little pig cross the road.<br>Tap anywhere to hop forward!</p><button onclick="start()">▶ Play</button>');
+requestAnimationFrame(loop);
+</script></body></html>
