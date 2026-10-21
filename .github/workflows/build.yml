@@ -30,7 +30,7 @@ jobs:
           npx cap sync android
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
 
       - name: Upload AAB Artifact
         uses: actions/upload-artifact@v4
